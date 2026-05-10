@@ -1,0 +1,86 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+.Python
+build/
+dist/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+MANIFEST
+.installed.cfg
+pip-log.txt
+pip-delete-this-directory.txt
+.pybuilder/
+
+# Virtual envs
+.venv/
+.venv-*/
+venv/
+env/
+ENV/
+
+# uv
+.uv-cache/
+uv.lock
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.cache/
+.hypothesis/
+
+# Type checkers
+.mypy_cache/
+.pyre/
+.pytype/
+.ruff_cache/
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Env files (only *.env.example is committed)
+.env
+.env.*
+!*.env.example
+
+# Docker
+*.pid
+docker-compose.override.yml
+
+# Secrets / tokens — never commit
+tokens/
+*.token
+*.tokens
+stryd.json
+garmin.json
+garmin-fit-cache/
+
+# Local data
+data/
+fit/
+
+# Logs
+*.log

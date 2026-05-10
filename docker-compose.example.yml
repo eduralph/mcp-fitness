@@ -1,0 +1,55 @@
+# Repo-level example: both servers deployed together, sharing the
+# cloudflared_proxy network. Copy to docker-compose.yml and adjust
+# volume paths + env files for your host. See docs/architecture.md for
+# the Synology + Cloudflare Tunnel walkthrough.
+
+services:
+  mcp-stryd:
+    build:
+      context: .
+      dockerfile: packages/mcp-stryd/Dockerfile
+    image: ghcr.io/eduralph/mcp-stryd:latest
+    container_name: mcp-stryd
+    restart: unless-stopped
+    env_file: ./mcp-stryd.env
+    environment:
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8080"
+      MCP_LOG_LEVEL: "INFO"
+      MCP_TOKEN_DIR: "/data/tokens"
+    volumes:
+      - ./tokens/stryd:/data/tokens
+    networks: [cloudflared_proxy]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/health', timeout=3).status == 200 else 1)"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+
+  mcp-garmin:
+    build:
+      context: .
+      dockerfile: packages/mcp-garmin/Dockerfile
+    image: ghcr.io/eduralph/mcp-garmin:latest
+    container_name: mcp-garmin
+    restart: unless-stopped
+    env_file: ./mcp-garmin.env
+    environment:
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8080"
+      MCP_LOG_LEVEL: "INFO"
+      MCP_TOKEN_DIR: "/data/tokens"
+    volumes:
+      - ./tokens/garmin:/data/tokens
+      # FIT-file source (Phase 2). Bind-mount read-only.
+      # - /volume1/garmin-fit:/data/fit:ro
+    networks: [cloudflared_proxy]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/health', timeout=3).status == 200 else 1)"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+
+networks:
+  cloudflared_proxy:
+    external: true

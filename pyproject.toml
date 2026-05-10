@@ -1,0 +1,42 @@
+# Workspace-level pyproject.toml.
+#
+# This file holds dev tools for the monorepo. It is NOT a published
+# package. Each member package under packages/* has its own pyproject.toml
+# and ships independently. See docs/architecture.md.
+
+[project]
+name = "mcp-fitness-workspace"
+version = "0.0.0"
+description = "mcp-fitness monorepo dev tools (not published)"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "Eduard Ralph" }]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.7",
+    "mypy>=1.13",
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "respx>=0.21",
+    "httpx>=0.27",
+]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+mcp-fitness-shared = { workspace = true }
+mcp-stryd = { workspace = true }
+mcp-garmin = { workspace = true }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = [
+    "packages/mcp-fitness-shared/tests",
+    "packages/mcp-stryd/tests",
+    "packages/mcp-garmin/tests",
+]
+filterwarnings = ["error"]

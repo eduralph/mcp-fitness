@@ -1,0 +1,48 @@
+# mcp-fitness-shared — internal utilities for the mcp-fitness monorepo.
+#
+# This package is INTERNAL. It is never published to PyPI. It travels
+# inside each public package's wheel and Docker image as a path
+# dependency. The `Private :: Do Not Upload` classifier is the canonical
+# way to ensure `twine upload` refuses to ship it if someone tries.
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-fitness-shared"
+version = "0.1.0"
+description = "Shared utilities for mcp-fitness servers (internal — not published)"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "Eduard Ralph" }]
+keywords = ["mcp", "fitness"]
+classifiers = [
+    "Private :: Do Not Upload",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: POSIX :: Linux",
+    "Typing :: Typed",
+]
+
+dependencies = [
+    "pydantic>=2.8",
+    "pydantic-settings>=2.5",
+    "structlog>=24.4",
+    "fastmcp>=2.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.27",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_fitness_shared"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/", "README.md", "pyproject.toml"]

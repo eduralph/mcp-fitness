@@ -7,22 +7,22 @@ Phased plan. Each phase is a shippable milestone.
 **Goal:** the monorepo exists, both packages have skeletons, CI runs,
 both servers respond to `/health`.
 
-- [ ] Create `eduralph/mcp-fitness` on GitHub, GPL-3.0, no branch protection
-- [ ] Initial commit: top-level README, LICENSE, .gitignore, workspace
+- [x] Create `eduralph/mcp-fitness` on GitHub, GPL-3.0, no branch protection
+- [x] Initial commit: top-level README, LICENSE, .gitignore, workspace
       `pyproject.toml`, ruff.toml, mypy.ini, CLAUDE.md
-- [ ] `packages/mcp-fitness-shared/` with `config.py`, `logging.py`,
+- [x] `packages/mcp-fitness-shared/` with `config.py`, `logging.py`,
       `tokens.py`, `health.py` — bare minimum implementations
-- [ ] `packages/mcp-stryd/` with FastMCP instantiation, single `health()`
+- [x] `packages/mcp-stryd/` with FastMCP instantiation, single `health()`
       tool, Dockerfile, package README
-- [ ] `packages/mcp-garmin/` with the same skeleton
-- [ ] `python -m mcp_stryd` and `python -m mcp_garmin` both boot and
+- [x] `packages/mcp-garmin/` with the same skeleton
+- [x] `python -m mcp_stryd` and `python -m mcp_garmin` both boot and
       respond
-- [ ] `tests/test_server.py` in each package smoke-tests the health tool
-- [ ] GitHub Actions: ruff + mypy + pytest for both packages, matrix
+- [x] `tests/test_server.py` in each package smoke-tests the health tool
+- [x] GitHub Actions: ruff + mypy + pytest for both packages, matrix
       Python 3.12 + 3.13
-- [ ] Both Dockerfiles build, produce working images
-- [ ] Repo-level `docker-compose.example.yml` with both services
-- [ ] Per-package `CHANGELOG.md` files with `0.1.0 — initial scaffold`
+- [x] Both Dockerfiles build, produce working images
+- [x] Repo-level `docker-compose.example.yml` with both services
+- [x] Per-package `CHANGELOG.md` files with `0.1.0 — initial scaffold`
 
 **Exit criterion:** `docker compose up` brings both containers up, both
 `/health` endpoints return 200.
@@ -191,9 +191,10 @@ a useful answer in one Claude turn.
 
 ## Current state
 
-- **Phase:** 0 (not yet started)
-- **Next action:** create `eduralph/mcp-fitness` on GitHub, push initial scaffold
+- **Phase:** 0 complete; Phase 1 prerequisites pending
+- **Next action:** verify Stryd API access is included with the
+  subscription; register a developer application in the Stryd portal
 - **Blocker for Phase 1:** verify Stryd API access; register developer app
 - **Blocker for Phase 2:** confirm FIT auto-export pipeline lands files in
   a Synology-accessible directory
-- **Last updated:** TODO date
+- **Last updated:** 2026-05-11

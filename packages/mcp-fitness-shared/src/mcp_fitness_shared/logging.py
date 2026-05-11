@@ -35,6 +35,12 @@ PII_KEYS: Final[frozenset[str]] = frozenset(
 
 REDACTED: Final[str] = "[REDACTED]"
 
+# Cap recursion so a pathological or self-referential structure can't
+# blow the stack inside the logging hot path. 4 is enough for the
+# expected shapes (activity → laps → samples → field) and shallow
+# enough to remain fast.
+_MAX_REDACT_DEPTH: Final[int] = 4
+
 _LEVEL_BY_METHOD: Final[dict[str, int]] = {
     "critical": logging.CRITICAL,
     "exception": logging.ERROR,
@@ -47,6 +53,31 @@ _LEVEL_BY_METHOD: Final[dict[str, int]] = {
 }
 
 
+def _redact_value(value: Any, depth: int) -> Any:
+    """Recursively scrub :data:`PII_KEYS` from nested dicts and sequences.
+
+    Iterates structurally until :data:`_MAX_REDACT_DEPTH` is reached; at
+    the depth limit the value is returned untouched (better to keep a
+    nested payload than to recurse forever). Tuples are preserved as
+    tuples; everything else passes through.
+    """
+    if depth >= _MAX_REDACT_DEPTH:
+        return value
+    if isinstance(value, dict):
+        redacted: dict[Any, Any] = {}
+        for key, item in value.items():
+            if key in PII_KEYS:
+                redacted[key] = REDACTED
+            else:
+                redacted[key] = _redact_value(item, depth + 1)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_value(item, depth + 1) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_value(item, depth + 1) for item in value)
+    return value
+
+
 def redact_pii(
     _logger: WrappedLogger,
     method_name: str,
@@ -54,16 +85,19 @@ def redact_pii(
 ) -> EventDict:
     """structlog processor: scrub PII keys at INFO and above.
 
-    Keys listed in :data:`PII_KEYS` are replaced with
-    :data:`REDACTED`. At DEBUG (only enabled for local dev), values
-    pass through unmodified.
+    Keys listed in :data:`PII_KEYS` are replaced with :data:`REDACTED`
+    wherever they appear in the event — top-level keys *and* nested
+    dicts/lists/tuples up to :data:`_MAX_REDACT_DEPTH`. At DEBUG (only
+    enabled for local dev), values pass through unmodified.
     """
     level = _LEVEL_BY_METHOD.get(method_name.lower(), logging.INFO)
     if level < logging.INFO:
         return event_dict
-    for key in PII_KEYS:
-        if key in event_dict:
+    for key in list(event_dict):
+        if key in PII_KEYS:
             event_dict[key] = REDACTED
+        else:
+            event_dict[key] = _redact_value(event_dict[key], depth=1)
     return event_dict
 
 

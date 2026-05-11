@@ -63,6 +63,84 @@ def test_no_op_when_no_pii_present() -> None:
     assert out == event
 
 
+def test_redacts_nested_dicts() -> None:
+    """A FIT-style payload with PII nested inside an ``activity`` dict
+    must come out scrubbed at every level — that's the whole point of
+    enforcing redaction structurally rather than asking call sites to
+    flatten before logging."""
+    event = {
+        "event": "indexed_activity",
+        "activity": {
+            "power": 250,
+            "gps_lat": 47.123,
+            "user_name": "Eduard",
+            "nested": {"gps_lon": 8.456, "power": 251},
+        },
+    }
+    out = redact_pii(None, "info", event)
+    assert out["activity"]["power"] == 250
+    assert out["activity"]["gps_lat"] == REDACTED
+    assert out["activity"]["user_name"] == REDACTED
+    assert out["activity"]["nested"]["gps_lon"] == REDACTED
+    assert out["activity"]["nested"]["power"] == 251
+
+
+def test_redacts_pii_inside_lists() -> None:
+    """Sample arrays from FIT files are the realistic shape: list of
+    dicts each containing potentially-sensitive fields."""
+    event = {
+        "event": "samples",
+        "samples": [
+            {"power": 200, "gps_lat": 47.1},
+            {"power": 210, "gps_lon": 8.4},
+        ],
+    }
+    out = redact_pii(None, "info", event)
+    assert out["samples"][0]["power"] == 200
+    assert out["samples"][0]["gps_lat"] == REDACTED
+    assert out["samples"][1]["gps_lon"] == REDACTED
+
+
+def test_redacts_pii_inside_tuples_and_preserves_tuple_type() -> None:
+    event = {"event": "x", "pair": ({"gps_lat": 1.0}, {"power": 250})}
+    out = redact_pii(None, "info", event)
+    assert isinstance(out["pair"], tuple)
+    assert out["pair"][0]["gps_lat"] == REDACTED
+    assert out["pair"][1]["power"] == 250
+
+
+def test_recursion_depth_cap_does_not_explode() -> None:
+    """A deeply nested structure must terminate rather than recursing
+    forever. Beyond the depth cap, values pass through unredacted —
+    that's the explicit trade-off; the alternative is to risk crashing
+    the logger on malformed input."""
+    deep: dict[str, object] = {"k": "leaf"}
+    for _ in range(50):
+        deep = {"k": deep}
+    event = {"event": "deep", "tree": deep}
+    # Must not raise RecursionError.
+    out = redact_pii(None, "info", event)
+    assert out["event"] == "deep"
+
+
+def test_redaction_does_not_mutate_nested_originals() -> None:
+    """Nested dicts referenced by the caller must survive intact —
+    structlog's contract is that the processor owns ``event_dict``,
+    but the caller still owns the objects they passed *into* it.
+    Mutating those would surprise anyone who logs an activity model
+    and then keeps using it.
+    """
+    activity = {"gps_lat": 47.1, "power": 250}
+    event_dict = {"event": "indexed", "activity": activity}
+    redact_pii(None, "info", event_dict)
+
+    # The caller's nested object is untouched.
+    assert activity == {"gps_lat": 47.1, "power": 250}
+    # The event_dict's view of it is a new redacted dict.
+    assert event_dict["activity"] == {"gps_lat": REDACTED, "power": 250}
+    assert event_dict["activity"] is not activity
+
+
 # --- configure_logging integration ------------------------------------
 #
 # These are the tests that actually back CLAUDE.md's claim that "PII
@@ -107,6 +185,39 @@ def test_configure_at_info_emits_json_with_pii_redacted(
     # to see that something was scrubbed), but never the original value.
     for key in PII_KEYS:
         assert payload[key] == REDACTED, f"{key} leaked at INFO"
+
+
+def test_configure_at_info_redacts_nested_pii(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """End-to-end: real FIT-shaped payload via the configured logger
+    must emerge with every PII field scrubbed regardless of depth."""
+    configure_logging(level="INFO")
+    log = get_logger("test.module")
+    log.info(
+        "indexed_activity",
+        duration_s=3600,
+        activity={
+            "power": 250,
+            "gps_lat": 47.123,
+            "user_name": "Eduard",
+            "samples": [
+                {"power": 200, "gps_lon": 8.456},
+                {"power": 210, "gps_lat": 47.124},
+            ],
+        },
+    )
+    payload = _last_json_line(capsys.readouterr().out)
+    activity = payload["activity"]
+    assert isinstance(activity, dict)
+    assert activity["power"] == 250
+    assert activity["gps_lat"] == REDACTED
+    assert activity["user_name"] == REDACTED
+    samples = activity["samples"]
+    assert isinstance(samples, list)
+    assert samples[0]["gps_lon"] == REDACTED
+    assert samples[0]["power"] == 200
+    assert samples[1]["gps_lat"] == REDACTED
 
 
 def test_configure_at_warning_still_redacts(

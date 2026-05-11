@@ -10,6 +10,8 @@ Public surface:
 
 from __future__ import annotations
 
+from importlib.metadata import version
+
 from mcp_fitness_shared.config import SharedSettings
 from mcp_fitness_shared.health import (
     HealthStatus,
@@ -32,4 +34,6 @@ __all__ = [
     "write_token_file",
 ]
 
-__version__ = "0.1.0"
+# Resolved from installed package metadata so pyproject.toml is the
+# single source of truth — see CLAUDE.md "Conventions for releases".
+__version__ = version("mcp-fitness-shared")

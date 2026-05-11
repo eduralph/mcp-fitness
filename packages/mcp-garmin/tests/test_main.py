@@ -42,6 +42,7 @@ def test_main_wires_env_into_fastmcp_run(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert kwargs["port"] == 9999
     assert kwargs["log_level"] == "warning"  # lowercased for uvicorn
     assert kwargs["show_banner"] is False
+    assert kwargs["uvicorn_config"] == {"access_log": False}
 
 
 def test_main_uses_shared_defaults_when_env_unset(

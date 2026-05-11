@@ -6,6 +6,15 @@ versioning is [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- `__version__` now resolved from installed package metadata
+  (`importlib.metadata.version`) so `pyproject.toml` is the single
+  source of truth.
+- Entry point now passes `uvicorn_config={"access_log": False}` to
+  `FastMCP.run`. The shared logging chain enforces PII redaction;
+  stdlib access logs bypass it, so we disable them.
+
 ## [0.1.0] — initial scaffold
 
 ### Added

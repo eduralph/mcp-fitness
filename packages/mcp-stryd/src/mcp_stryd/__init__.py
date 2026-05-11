@@ -6,5 +6,10 @@ in Phase 1; see :mod:`mcp_stryd.server` and ``docs/roadmap.md``.
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+from importlib.metadata import version
+
+# Resolved from installed package metadata so pyproject.toml is the
+# single source of truth — bumping the wheel version alone is enough
+# to update what ``/health`` reports.
+__version__ = version("mcp-stryd")
 __all__ = ["__version__"]

@@ -1,0 +1,491 @@
+From 11b7c1a158a0bef6e212efaa9da6fd690cc2dca5 Mon Sep 17 00:00:00 2001
+From: Eduard Ralph <eduard@example.com>
+Date: Mon, 11 May 2026 16:18:00 +0000
+Subject: [PATCH] chore: post-Phase-0 review fixes
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Four small fixes flagged during the deep review of the Phase 0
+scaffolding. Single PR because each one is too small to stand alone.
+
+1. Nested PII redaction
+   redact_pii previously walked only top-level event_dict keys. A
+   future call like log.info('indexed', activity={'gps_lat': ...})
+   would leak. Added structural recursion into dicts, lists, and
+   tuples up to depth 4 (enough for activity → laps → samples →
+   field) and matching unit + integration tests. Nested caller
+   objects are *not* mutated — the processor builds new dicts.
+
+2. Disable uvicorn access logs
+   Uvicorn's access logger writes via stdlib logging, bypassing the
+   structlog PII chain. Once Phase 1 lands /oauth/callback?code=…
+   those URL parameters would appear in cleartext on stdout. Both
+   __main__.py entry points now pass uvicorn_config={'access_log':
+   False} to FastMCP.run. /health still works; uvicorn lifecycle
+   logs ('Started server process' etc.) still emit via
+   uvicorn.error, which carries no user data.
+
+3. __version__ from importlib.metadata
+   All three __init__.py files now read __version__ via
+   importlib.metadata.version(...) rather than hardcoding. Bumping
+   the wheel version in pyproject.toml is now enough to update what
+   /health reports — single source of truth.
+
+4. Roadmap currency
+   docs/roadmap.md 'Current state' said 'Phase 0 (not yet started)'.
+   Flipped to 'Phase 0 complete; Phase 1 prerequisites pending',
+   ticked the Phase 0 checkboxes, and set Last updated. CLAUDE.md
+   tells future agents to trust the docs; this keeps them honest.
+
+Local verification:
+  pytest             49/49 passed
+  mypy --strict      clean across all 3 packages
+  ruff check         clean
+  ruff format        clean
+  python -m mcp_stryd → GET /health → 200, access log line absent
+
+Per-package CHANGELOGs updated under [Unreleased].
+---
+ docs/roadmap.md                               |  29 ++---
+ .../src/mcp_fitness_shared/__init__.py        |   6 +-
+ .../src/mcp_fitness_shared/logging.py         |  44 ++++++-
+ .../mcp-fitness-shared/tests/test_logging.py  | 111 ++++++++++++++++++
+ packages/mcp-garmin/CHANGELOG.md              |   9 ++
+ .../mcp-garmin/src/mcp_garmin/__init__.py     |   7 +-
+ .../mcp-garmin/src/mcp_garmin/__main__.py     |   9 +-
+ packages/mcp-garmin/tests/test_main.py        |   1 +
+ packages/mcp-stryd/CHANGELOG.md               |  10 ++
+ packages/mcp-stryd/src/mcp_stryd/__init__.py  |   7 +-
+ packages/mcp-stryd/src/mcp_stryd/__main__.py  |   8 ++
+ packages/mcp-stryd/tests/test_main.py         |   3 +
+ 12 files changed, 221 insertions(+), 23 deletions(-)
+
+diff --git a/docs/roadmap.md b/docs/roadmap.md
+index 097d58e..1766634 100644
+--- a/docs/roadmap.md
++++ b/docs/roadmap.md
+@@ -7,22 +7,22 @@ Phased plan. Each phase is a shippable milestone.
+ **Goal:** the monorepo exists, both packages have skeletons, CI runs,
+ both servers respond to `/health`.
+ 
+-- [ ] Create `eduralph/mcp-fitness` on GitHub, GPL-3.0, no branch protection
+-- [ ] Initial commit: top-level README, LICENSE, .gitignore, workspace
++- [x] Create `eduralph/mcp-fitness` on GitHub, GPL-3.0, no branch protection
++- [x] Initial commit: top-level README, LICENSE, .gitignore, workspace
+       `pyproject.toml`, ruff.toml, mypy.ini, CLAUDE.md
+-- [ ] `packages/mcp-fitness-shared/` with `config.py`, `logging.py`,
++- [x] `packages/mcp-fitness-shared/` with `config.py`, `logging.py`,
+       `tokens.py`, `health.py` — bare minimum implementations
+-- [ ] `packages/mcp-stryd/` with FastMCP instantiation, single `health()`
++- [x] `packages/mcp-stryd/` with FastMCP instantiation, single `health()`
+       tool, Dockerfile, package README
+-- [ ] `packages/mcp-garmin/` with the same skeleton
+-- [ ] `python -m mcp_stryd` and `python -m mcp_garmin` both boot and
++- [x] `packages/mcp-garmin/` with the same skeleton
++- [x] `python -m mcp_stryd` and `python -m mcp_garmin` both boot and
+       respond
+-- [ ] `tests/test_server.py` in each package smoke-tests the health tool
+-- [ ] GitHub Actions: ruff + mypy + pytest for both packages, matrix
++- [x] `tests/test_server.py` in each package smoke-tests the health tool
++- [x] GitHub Actions: ruff + mypy + pytest for both packages, matrix
+       Python 3.12 + 3.13
+-- [ ] Both Dockerfiles build, produce working images
+-- [ ] Repo-level `docker-compose.example.yml` with both services
+-- [ ] Per-package `CHANGELOG.md` files with `0.1.0 — initial scaffold`
++- [x] Both Dockerfiles build, produce working images
++- [x] Repo-level `docker-compose.example.yml` with both services
++- [x] Per-package `CHANGELOG.md` files with `0.1.0 — initial scaffold`
+ 
+ **Exit criterion:** `docker compose up` brings both containers up, both
+ `/health` endpoints return 200.
+@@ -191,9 +191,10 @@ a useful answer in one Claude turn.
+ 
+ ## Current state
+ 
+-- **Phase:** 0 (not yet started)
+-- **Next action:** create `eduralph/mcp-fitness` on GitHub, push initial scaffold
++- **Phase:** 0 complete; Phase 1 prerequisites pending
++- **Next action:** verify Stryd API access is included with the
++  subscription; register a developer application in the Stryd portal
+ - **Blocker for Phase 1:** verify Stryd API access; register developer app
+ - **Blocker for Phase 2:** confirm FIT auto-export pipeline lands files in
+   a Synology-accessible directory
+-- **Last updated:** TODO date
++- **Last updated:** 2026-05-11
+diff --git a/packages/mcp-fitness-shared/src/mcp_fitness_shared/__init__.py b/packages/mcp-fitness-shared/src/mcp_fitness_shared/__init__.py
+index e6d54ce..7d7e53e 100644
+--- a/packages/mcp-fitness-shared/src/mcp_fitness_shared/__init__.py
++++ b/packages/mcp-fitness-shared/src/mcp_fitness_shared/__init__.py
+@@ -10,6 +10,8 @@ Public surface:
+ 
+ from __future__ import annotations
+ 
++from importlib.metadata import version
++
+ from mcp_fitness_shared.config import SharedSettings
+ from mcp_fitness_shared.health import (
+     HealthStatus,
+@@ -32,4 +34,6 @@ __all__ = [
+     "write_token_file",
+ ]
+ 
+-__version__ = "0.1.0"
++# Resolved from installed package metadata so pyproject.toml is the
++# single source of truth — see CLAUDE.md "Conventions for releases".
++__version__ = version("mcp-fitness-shared")
+diff --git a/packages/mcp-fitness-shared/src/mcp_fitness_shared/logging.py b/packages/mcp-fitness-shared/src/mcp_fitness_shared/logging.py
+index 19d0dd6..0f8b262 100644
+--- a/packages/mcp-fitness-shared/src/mcp_fitness_shared/logging.py
++++ b/packages/mcp-fitness-shared/src/mcp_fitness_shared/logging.py
+@@ -35,6 +35,12 @@ PII_KEYS: Final[frozenset[str]] = frozenset(
+ 
+ REDACTED: Final[str] = "[REDACTED]"
+ 
++# Cap recursion so a pathological or self-referential structure can't
++# blow the stack inside the logging hot path. 4 is enough for the
++# expected shapes (activity → laps → samples → field) and shallow
++# enough to remain fast.
++_MAX_REDACT_DEPTH: Final[int] = 4
++
+ _LEVEL_BY_METHOD: Final[dict[str, int]] = {
+     "critical": logging.CRITICAL,
+     "exception": logging.ERROR,
+@@ -47,6 +53,31 @@ _LEVEL_BY_METHOD: Final[dict[str, int]] = {
+ }
+ 
+ 
++def _redact_value(value: Any, depth: int) -> Any:
++    """Recursively scrub :data:`PII_KEYS` from nested dicts and sequences.
++
++    Iterates structurally until :data:`_MAX_REDACT_DEPTH` is reached; at
++    the depth limit the value is returned untouched (better to keep a
++    nested payload than to recurse forever). Tuples are preserved as
++    tuples; everything else passes through.
++    """
++    if depth >= _MAX_REDACT_DEPTH:
++        return value
++    if isinstance(value, dict):
++        redacted: dict[Any, Any] = {}
++        for key, item in value.items():
++            if key in PII_KEYS:
++                redacted[key] = REDACTED
++            else:
++                redacted[key] = _redact_value(item, depth + 1)
++        return redacted
++    if isinstance(value, list):
++        return [_redact_value(item, depth + 1) for item in value]
++    if isinstance(value, tuple):
++        return tuple(_redact_value(item, depth + 1) for item in value)
++    return value
++
++
+ def redact_pii(
+     _logger: WrappedLogger,
+     method_name: str,
+@@ -54,16 +85,19 @@ def redact_pii(
+ ) -> EventDict:
+     """structlog processor: scrub PII keys at INFO and above.
+ 
+-    Keys listed in :data:`PII_KEYS` are replaced with
+-    :data:`REDACTED`. At DEBUG (only enabled for local dev), values
+-    pass through unmodified.
++    Keys listed in :data:`PII_KEYS` are replaced with :data:`REDACTED`
++    wherever they appear in the event — top-level keys *and* nested
++    dicts/lists/tuples up to :data:`_MAX_REDACT_DEPTH`. At DEBUG (only
++    enabled for local dev), values pass through unmodified.
+     """
+     level = _LEVEL_BY_METHOD.get(method_name.lower(), logging.INFO)
+     if level < logging.INFO:
+         return event_dict
+-    for key in PII_KEYS:
+-        if key in event_dict:
++    for key in list(event_dict):
++        if key in PII_KEYS:
+             event_dict[key] = REDACTED
++        else:
++            event_dict[key] = _redact_value(event_dict[key], depth=1)
+     return event_dict
+ 
+ 
+diff --git a/packages/mcp-fitness-shared/tests/test_logging.py b/packages/mcp-fitness-shared/tests/test_logging.py
+index a7e2e7c..e0a2df0 100644
+--- a/packages/mcp-fitness-shared/tests/test_logging.py
++++ b/packages/mcp-fitness-shared/tests/test_logging.py
+@@ -63,6 +63,84 @@ def test_no_op_when_no_pii_present() -> None:
+     assert out == event
+ 
+ 
++def test_redacts_nested_dicts() -> None:
++    """A FIT-style payload with PII nested inside an ``activity`` dict
++    must come out scrubbed at every level — that's the whole point of
++    enforcing redaction structurally rather than asking call sites to
++    flatten before logging."""
++    event = {
++        "event": "indexed_activity",
++        "activity": {
++            "power": 250,
++            "gps_lat": 47.123,
++            "user_name": "Eduard",
++            "nested": {"gps_lon": 8.456, "power": 251},
++        },
++    }
++    out = redact_pii(None, "info", event)
++    assert out["activity"]["power"] == 250
++    assert out["activity"]["gps_lat"] == REDACTED
++    assert out["activity"]["user_name"] == REDACTED
++    assert out["activity"]["nested"]["gps_lon"] == REDACTED
++    assert out["activity"]["nested"]["power"] == 251
++
++
++def test_redacts_pii_inside_lists() -> None:
++    """Sample arrays from FIT files are the realistic shape: list of
++    dicts each containing potentially-sensitive fields."""
++    event = {
++        "event": "samples",
++        "samples": [
++            {"power": 200, "gps_lat": 47.1},
++            {"power": 210, "gps_lon": 8.4},
++        ],
++    }
++    out = redact_pii(None, "info", event)
++    assert out["samples"][0]["power"] == 200
++    assert out["samples"][0]["gps_lat"] == REDACTED
++    assert out["samples"][1]["gps_lon"] == REDACTED
++
++
++def test_redacts_pii_inside_tuples_and_preserves_tuple_type() -> None:
++    event = {"event": "x", "pair": ({"gps_lat": 1.0}, {"power": 250})}
++    out = redact_pii(None, "info", event)
++    assert isinstance(out["pair"], tuple)
++    assert out["pair"][0]["gps_lat"] == REDACTED
++    assert out["pair"][1]["power"] == 250
++
++
++def test_recursion_depth_cap_does_not_explode() -> None:
++    """A deeply nested structure must terminate rather than recursing
++    forever. Beyond the depth cap, values pass through unredacted —
++    that's the explicit trade-off; the alternative is to risk crashing
++    the logger on malformed input."""
++    deep: dict[str, object] = {"k": "leaf"}
++    for _ in range(50):
++        deep = {"k": deep}
++    event = {"event": "deep", "tree": deep}
++    # Must not raise RecursionError.
++    out = redact_pii(None, "info", event)
++    assert out["event"] == "deep"
++
++
++def test_redaction_does_not_mutate_nested_originals() -> None:
++    """Nested dicts referenced by the caller must survive intact —
++    structlog's contract is that the processor owns ``event_dict``,
++    but the caller still owns the objects they passed *into* it.
++    Mutating those would surprise anyone who logs an activity model
++    and then keeps using it.
++    """
++    activity = {"gps_lat": 47.1, "power": 250}
++    event_dict = {"event": "indexed", "activity": activity}
++    redact_pii(None, "info", event_dict)
++
++    # The caller's nested object is untouched.
++    assert activity == {"gps_lat": 47.1, "power": 250}
++    # The event_dict's view of it is a new redacted dict.
++    assert event_dict["activity"] == {"gps_lat": REDACTED, "power": 250}
++    assert event_dict["activity"] is not activity
++
++
+ # --- configure_logging integration ------------------------------------
+ #
+ # These are the tests that actually back CLAUDE.md's claim that "PII
+@@ -109,6 +187,39 @@ def test_configure_at_info_emits_json_with_pii_redacted(
+         assert payload[key] == REDACTED, f"{key} leaked at INFO"
+ 
+ 
++def test_configure_at_info_redacts_nested_pii(
++    capsys: pytest.CaptureFixture[str],
++) -> None:
++    """End-to-end: real FIT-shaped payload via the configured logger
++    must emerge with every PII field scrubbed regardless of depth."""
++    configure_logging(level="INFO")
++    log = get_logger("test.module")
++    log.info(
++        "indexed_activity",
++        duration_s=3600,
++        activity={
++            "power": 250,
++            "gps_lat": 47.123,
++            "user_name": "Eduard",
++            "samples": [
++                {"power": 200, "gps_lon": 8.456},
++                {"power": 210, "gps_lat": 47.124},
++            ],
++        },
++    )
++    payload = _last_json_line(capsys.readouterr().out)
++    activity = payload["activity"]
++    assert isinstance(activity, dict)
++    assert activity["power"] == 250
++    assert activity["gps_lat"] == REDACTED
++    assert activity["user_name"] == REDACTED
++    samples = activity["samples"]
++    assert isinstance(samples, list)
++    assert samples[0]["gps_lon"] == REDACTED
++    assert samples[0]["power"] == 200
++    assert samples[1]["gps_lat"] == REDACTED
++
++
+ def test_configure_at_warning_still_redacts(
+     capsys: pytest.CaptureFixture[str],
+ ) -> None:
+diff --git a/packages/mcp-garmin/CHANGELOG.md b/packages/mcp-garmin/CHANGELOG.md
+index 6bc4d7a..a388343 100644
+--- a/packages/mcp-garmin/CHANGELOG.md
++++ b/packages/mcp-garmin/CHANGELOG.md
+@@ -6,6 +6,15 @@ versioning is [Semantic Versioning](https://semver.org/).
+ 
+ ## [Unreleased]
+ 
++### Changed
++
++- `__version__` now resolved from installed package metadata
++  (`importlib.metadata.version`) so `pyproject.toml` is the single
++  source of truth.
++- Entry point now passes `uvicorn_config={"access_log": False}` to
++  `FastMCP.run`. The shared logging chain enforces PII redaction;
++  stdlib access logs bypass it, so we disable them.
++
+ ## [0.1.0] — initial scaffold
+ 
+ ### Added
+diff --git a/packages/mcp-garmin/src/mcp_garmin/__init__.py b/packages/mcp-garmin/src/mcp_garmin/__init__.py
+index f945e3d..c7442c0 100644
+--- a/packages/mcp-garmin/src/mcp_garmin/__init__.py
++++ b/packages/mcp-garmin/src/mcp_garmin/__init__.py
+@@ -6,5 +6,10 @@ Phase 2; opt-in Garmin Connect scraping lands in Phase 3.
+ 
+ from __future__ import annotations
+ 
+-__version__ = "0.1.0"
++from importlib.metadata import version
++
++# Resolved from installed package metadata so pyproject.toml is the
++# single source of truth — bumping the wheel version alone is enough
++# to update what ``/health`` reports.
++__version__ = version("mcp-garmin")
+ __all__ = ["__version__"]
+diff --git a/packages/mcp-garmin/src/mcp_garmin/__main__.py b/packages/mcp-garmin/src/mcp_garmin/__main__.py
+index a4b41e1..e51b682 100644
+--- a/packages/mcp-garmin/src/mcp_garmin/__main__.py
++++ b/packages/mcp-garmin/src/mcp_garmin/__main__.py
+@@ -1,4 +1,10 @@
+-"""Entry point — ``python -m mcp_garmin`` or the ``mcp-garmin`` console script."""
++"""Entry point — ``python -m mcp_garmin`` or the ``mcp-garmin`` console script.
++
++Uvicorn's access logger is disabled deliberately — see the analogous
++note in :mod:`mcp_stryd.__main__`. Phase 2/3 endpoints will benefit
++from the same protection; no path in this server should be appearing
++in stdlib access logs that bypass the structlog PII chain.
++"""
+ 
+ from __future__ import annotations
+ 
+@@ -15,6 +21,7 @@ def main() -> None:
+         port=settings.port,
+         log_level=settings.log_level.lower(),
+         show_banner=False,
++        uvicorn_config={"access_log": False},
+     )
+ 
+ 
+diff --git a/packages/mcp-garmin/tests/test_main.py b/packages/mcp-garmin/tests/test_main.py
+index 0b83534..1e39be4 100644
+--- a/packages/mcp-garmin/tests/test_main.py
++++ b/packages/mcp-garmin/tests/test_main.py
+@@ -42,6 +42,7 @@ def test_main_wires_env_into_fastmcp_run(monkeypatch: pytest.MonkeyPatch, tmp_pa
+     assert kwargs["port"] == 9999
+     assert kwargs["log_level"] == "warning"  # lowercased for uvicorn
+     assert kwargs["show_banner"] is False
++    assert kwargs["uvicorn_config"] == {"access_log": False}
+ 
+ 
+ def test_main_uses_shared_defaults_when_env_unset(
+diff --git a/packages/mcp-stryd/CHANGELOG.md b/packages/mcp-stryd/CHANGELOG.md
+index 67b99b9..6b12176 100644
+--- a/packages/mcp-stryd/CHANGELOG.md
++++ b/packages/mcp-stryd/CHANGELOG.md
+@@ -6,6 +6,16 @@ versioning is [Semantic Versioning](https://semver.org/).
+ 
+ ## [Unreleased]
+ 
++### Changed
++
++- `__version__` now resolved from installed package metadata
++  (`importlib.metadata.version`) so `pyproject.toml` is the single
++  source of truth.
++- Entry point now passes `uvicorn_config={"access_log": False}` to
++  `FastMCP.run` — uvicorn's access logger bypasses the structlog PII
++  chain, so disabling it prevents Phase 1 OAuth-callback URL
++  parameters from leaking to stdout in cleartext.
++
+ ## [0.1.0] — initial scaffold
+ 
+ ### Added
+diff --git a/packages/mcp-stryd/src/mcp_stryd/__init__.py b/packages/mcp-stryd/src/mcp_stryd/__init__.py
+index 20aec4b..eb7fe2c 100644
+--- a/packages/mcp-stryd/src/mcp_stryd/__init__.py
++++ b/packages/mcp-stryd/src/mcp_stryd/__init__.py
+@@ -6,5 +6,10 @@ in Phase 1; see :mod:`mcp_stryd.server` and ``docs/roadmap.md``.
+ 
+ from __future__ import annotations
+ 
+-__version__ = "0.1.0"
++from importlib.metadata import version
++
++# Resolved from installed package metadata so pyproject.toml is the
++# single source of truth — bumping the wheel version alone is enough
++# to update what ``/health`` reports.
++__version__ = version("mcp-stryd")
+ __all__ = ["__version__"]
+diff --git a/packages/mcp-stryd/src/mcp_stryd/__main__.py b/packages/mcp-stryd/src/mcp_stryd/__main__.py
+index 978a448..f0a4a6c 100644
+--- a/packages/mcp-stryd/src/mcp_stryd/__main__.py
++++ b/packages/mcp-stryd/src/mcp_stryd/__main__.py
+@@ -4,6 +4,13 @@ Starts FastMCP's HTTP transport on the configured host and port. The
+ ``http`` transport is what claude.ai talks to over the Cloudflare
+ Tunnel (see ``docs/architecture.md``); stdio is intentionally not
+ supported.
++
++Uvicorn's access logger is disabled deliberately: access lines go to
++stdlib logging, *not* through the structlog PII-redaction chain. Once
++Phase 1 lands the OAuth callback (``/oauth/callback?code=…&state=…``)
++those URL parameters would otherwise appear in cleartext stdout. The
++``/health`` endpoint loses access logging too — Docker's healthcheck
++and Cloudflare Tunnel don't need it.
+ """
+ 
+ from __future__ import annotations
+@@ -21,6 +28,7 @@ def main() -> None:
+         port=settings.port,
+         log_level=settings.log_level.lower(),
+         show_banner=False,
++        uvicorn_config={"access_log": False},
+     )
+ 
+ 
+diff --git a/packages/mcp-stryd/tests/test_main.py b/packages/mcp-stryd/tests/test_main.py
+index 89f5a8c..9ebb283 100644
+--- a/packages/mcp-stryd/tests/test_main.py
++++ b/packages/mcp-stryd/tests/test_main.py
+@@ -42,6 +42,9 @@ def test_main_wires_env_into_fastmcp_run(monkeypatch: pytest.MonkeyPatch, tmp_pa
+     assert kwargs["port"] == 9999
+     assert kwargs["log_level"] == "warning"  # lowercased for uvicorn
+     assert kwargs["show_banner"] is False
++    # Uvicorn access logs are disabled to prevent OAuth-callback URL
++    # parameters from leaking past the structlog PII chain.
++    assert kwargs["uvicorn_config"] == {"access_log": False}
+ 
+ 
+ def test_main_uses_shared_defaults_when_env_unset(
+-- 
+2.43.0
+

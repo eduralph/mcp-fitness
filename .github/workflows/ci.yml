@@ -32,6 +32,9 @@ jobs:
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          # No committed uv.lock — hash pyproject.toml files instead so
+          # the cache key still varies meaningfully.
+          cache-dependency-glob: "**/pyproject.toml"
       - run: uv tool install ruff
       - run: ruff check .
       - run: ruff format --check .
@@ -49,6 +52,9 @@ jobs:
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          # No committed uv.lock — hash pyproject.toml files instead so
+          # the cache key still varies meaningfully.
+          cache-dependency-glob: "**/pyproject.toml"
       - name: Install dependencies
         run: |
           uv venv --python ${{ matrix.python-version }}
@@ -75,6 +81,9 @@ jobs:
       - uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
+          # No committed uv.lock — hash pyproject.toml files instead so
+          # the cache key still varies meaningfully.
+          cache-dependency-glob: "**/pyproject.toml"
       - name: Install dependencies
         run: |
           uv venv --python ${{ matrix.python-version }}

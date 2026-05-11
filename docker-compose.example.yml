@@ -11,7 +11,9 @@ services:
     image: ghcr.io/eduralph/mcp-stryd:latest
     container_name: mcp-stryd
     restart: unless-stopped
-    env_file: ./mcp-stryd.env
+    env_file:
+      - path: ./mcp-stryd.env
+        required: false
     environment:
       MCP_HOST: "0.0.0.0"
       MCP_PORT: "8080"
@@ -33,7 +35,9 @@ services:
     image: ghcr.io/eduralph/mcp-garmin:latest
     container_name: mcp-garmin
     restart: unless-stopped
-    env_file: ./mcp-garmin.env
+    env_file:
+      - path: ./mcp-garmin.env
+        required: false
     environment:
       MCP_HOST: "0.0.0.0"
       MCP_PORT: "8080"

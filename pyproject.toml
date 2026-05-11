@@ -34,6 +34,10 @@ mcp-garmin = { workspace = true }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# importlib import mode lets us collect tests from sibling packages
+# that share filenames (e.g. each package has its own test_server.py)
+# without the legacy rootdir/__init__ collisions.
+addopts = ["--import-mode=importlib"]
 testpaths = [
     "packages/mcp-fitness-shared/tests",
     "packages/mcp-stryd/tests",

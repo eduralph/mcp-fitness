@@ -11,13 +11,20 @@ Public surface:
 from __future__ import annotations
 
 from mcp_fitness_shared.config import SharedSettings
-from mcp_fitness_shared.health import HealthStatus, register_health_endpoint
+from mcp_fitness_shared.health import (
+    HealthStatus,
+    ProviderCheck,
+    build_health_status,
+    register_health_endpoint,
+)
 from mcp_fitness_shared.logging import configure_logging, get_logger
 from mcp_fitness_shared.tokens import read_token_file, write_token_file
 
 __all__ = [
     "HealthStatus",
+    "ProviderCheck",
     "SharedSettings",
+    "build_health_status",
     "configure_logging",
     "get_logger",
     "read_token_file",

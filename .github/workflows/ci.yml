@@ -1,0 +1,126 @@
+# CI for the mcp-fitness monorepo.
+#
+# Runs ruff + mypy + pytest on every push and PR. Each public package
+# is tested independently — even though they share utilities, they
+# version and release separately, so their test signals stay separate.
+#
+# Matrix: Python 3.12 and 3.13 per the tech-stack guarantee in
+# CLAUDE.md. uv handles dependency resolution; pip would work too but
+# would be slower.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - run: uv tool install ruff
+      - run: ruff check .
+      - run: ruff format --check .
+
+  typecheck:
+    name: mypy (${{ matrix.package }}, py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+        package: [mcp-fitness-shared, mcp-stryd, mcp-garmin]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: |
+          uv venv --python ${{ matrix.python-version }}
+          uv pip install \
+            ./packages/mcp-fitness-shared \
+            ./packages/mcp-stryd \
+            ./packages/mcp-garmin \
+            mypy pytest pytest-asyncio respx httpx
+      - name: mypy --strict
+        run: |
+          source .venv/bin/activate
+          mypy --strict packages/${{ matrix.package }}/src
+
+  test:
+    name: pytest (${{ matrix.package }}, py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+        package: [mcp-fitness-shared, mcp-stryd, mcp-garmin]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: |
+          uv venv --python ${{ matrix.python-version }}
+          uv pip install \
+            ./packages/mcp-fitness-shared \
+            ./packages/mcp-stryd \
+            ./packages/mcp-garmin \
+            pytest pytest-asyncio respx httpx
+      - name: pytest
+        run: |
+          source .venv/bin/activate
+          pytest packages/${{ matrix.package }}/tests -v
+
+  docker:
+    name: docker build (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [mcp-stryd, mcp-garmin]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packages/${{ matrix.package }}/Dockerfile
+          push: false
+          load: true
+          tags: ${{ matrix.package }}:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Start container, hit /health, stop
+        run: |
+          docker run -d --name probe -p 8080:8080 ${{ matrix.package }}:ci
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            if curl -fsS http://localhost:8080/health; then
+              echo
+              echo "/health responded on attempt $i"
+              docker rm -f probe
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "/health never responded"
+          docker logs probe
+          docker rm -f probe
+          exit 1

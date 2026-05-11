@@ -61,6 +61,11 @@ coverage.xml
 .DS_Store
 Thumbs.db
 
+# Claude Code user-local settings (project-level .claude/settings.json
+# can be committed if you want to share project conventions; the .local
+# variant is per-machine and never should be).
+.claude/settings.local.json
+
 # Env files (only *.env.example is committed)
 .env
 .env.*
